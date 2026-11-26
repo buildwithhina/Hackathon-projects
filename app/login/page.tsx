@@ -1,5 +1,6 @@
-import AuthPage from "../components/AuthPage";
+import { Suspense } from "react";
+import AuthPage from "@/app/components/AuthPage";
 
 export default function LoginPage() {
-  return <AuthPage mode="login" />;
+  return <Suspense fallback={<p>Loading sign-in…</p>}><AuthPage mode="login" /></Suspense>;
 }

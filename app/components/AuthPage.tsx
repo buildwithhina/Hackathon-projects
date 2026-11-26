@@ -1,247 +1,91 @@
-
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { createClient } from "../../lib/supabase/client";
+import { authDestination } from "@/lib/auth-redirect";
+import { createClient } from "@/lib/supabase/client";
+import { EventShell } from "@/app/components/EventShell";
 
-export default function AuthPage({
-  mode: initialMode,
-}: {
-  mode: "login" | "signup";
-}) {
+export default function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
-  const supabase = createClient();
+  const query = useSearchParams();
+  const next = authDestination(query.get("next"));
+  const signup = mode === "signup";
+  const [message, setMessage] = useState(query.get("error") === "auth" ? "Sign-in couldn’t finish. Please try again." : "");
+  const [busy, setBusy] = useState(false);
 
-  const isSignup = initialMode === "signup";
+  function callback() {
+    const url = new URL("/auth/callback", window.location.origin);
+    url.searchParams.set("next", next);
+    return url.toString();
+  }
 
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  function goToEvent() {
+    router.replace(next);
+    router.refresh();
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email"));
+    const password = String(form.get("password"));
+    const { auth } = createClient();
     setMessage("");
-    setLoading(true);
-
+    setBusy(true);
     try {
-      if (isSignup) {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: fullName,
-            },
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=/`,
-          },
+      if (signup) {
+        const { data, error } = await auth.signUp({
+          email, password,
+          options: { data: { full_name: form.get("fullName") }, emailRedirectTo: callback() },
         });
-
         if (error) throw error;
-
-        if (data.session) {
-          router.push("/dashboard");
-          router.refresh();
-        } else {
-          setMessage(
-            "Account created! Please check your email to verify your account."
-          );
-        }
+        if (data.session) goToEvent();
+        else setMessage("Check your email to verify your account and continue.");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
+        const { error } = await auth.signInWithPassword({ email, password });
         if (error) throw error;
-
-        router.push("/");
-        router.refresh();
+        goToEvent();
       }
     } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Something went wrong. Please try again."
-      );
+      setMessage(error instanceof Error ? error.message : "Couldn’t sign in. Please try again.");
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
-  async function handleSocialLogin(
-    provider: "google" | "linkedin_oidc"
-  ) {
+  async function social(provider: "google" | "linkedin_oidc") {
     setMessage("");
-    setLoading(true);
-
+    setBusy(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
-        },
-      });
-
+      const { error } = await createClient().auth.signInWithOAuth({ provider, options: { redirectTo: callback() } });
       if (error) throw error;
     } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Social login failed. Please try again."
-      );
-      setLoading(false);
+      setMessage(error instanceof Error ? error.message : "Couldn’t start sign-in. Please try again.");
+      setBusy(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-[#07090d] px-6 py-12 text-white">
-      <div className="mx-auto max-w-md">
-
-        <Link href="/" className="text-xl font-bold">
-          Event<span className="text-cyan-300">Hub</span>
-        </Link>
-
-        <section className="mt-10 rounded-3xl border border-white/10 bg-[#0c1017] p-8">
-
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
-            {isSignup ? "Join EventHub" : "Welcome back"}
-          </p>
-
-          <h1 className="mt-3 text-3xl font-bold">
-            {isSignup ? "Create an account" : "Log in"}
-          </h1>
-
-          <div className="mt-6 grid grid-cols-2 gap-2 rounded-xl bg-[#07090d] p-1">
-
-            <button
-              type="button"
-              onClick={() => router.push("/login")}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                !isSignup
-                  ? "bg-cyan-300 text-slate-950"
-                  : "text-slate-400"
-              }`}
-            >
-              Log in
-            </button>
-
-            <button
-              type="button"
-              onClick={() => router.push("/signup")}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                isSignup
-                  ? "bg-cyan-300 text-slate-950"
-                  : "text-slate-400"
-              }`}
-            >
-              Sign up
-            </button>
-
-          </div>
-
-          {/* Social Login */}
-
-          <div className="mt-7 space-y-3">
-
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => handleSocialLogin("google")}
-              className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-[#07090d] py-3 font-semibold hover:border-cyan-300 disabled:opacity-50"
-            >
-              <span className="text-xl font-bold">G</span>
-              Continue with Google
-            </button>
-
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => handleSocialLogin("linkedin_oidc")}
-              className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-[#07090d] py-3 font-semibold hover:border-cyan-300 disabled:opacity-50"
-            >
-              <span className="rounded-sm bg-[#0A66C2] px-1.5 py-0.5 font-bold text-white">
-                in
-              </span>
-              Continue with LinkedIn
-            </button>
-
-          </div>
-
-          <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-white/10" />
-            <span className="text-xs text-slate-500">
-              OR CONTINUE WITH EMAIL
-            </span>
-            <div className="h-px flex-1 bg-white/10" />
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-
-            {isSignup && (
-              <label className="block text-sm font-medium text-slate-200">
-                Full name
-                <input
-                  required
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Your full name"
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-[#07090d] px-4 py-3 outline-none placeholder:text-slate-600 focus:border-cyan-300"
-                />
-              </label>
-            )}
-
-            <label className="block text-sm font-medium text-slate-200">
-              Email address
-              <input
-                required
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="mt-2 w-full rounded-xl border border-white/10 bg-[#07090d] px-4 py-3 outline-none placeholder:text-slate-600 focus:border-cyan-300"
-              />
-            </label>
-
-            <label className="block text-sm font-medium text-slate-200">
-              Password
-              <input
-                required
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
-                placeholder="At least 8 characters"
-                className="mt-2 w-full rounded-xl border border-white/10 bg-[#07090d] px-4 py-3 outline-none placeholder:text-slate-600 focus:border-cyan-300"
-              />
-            </label>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-full bg-cyan-300 px-6 py-3 font-bold text-slate-950 hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading
-                ? "Please wait..."
-                : isSignup
-                  ? "Create account"
-                  : "Log in"}
-            </button>
-
-          </form>
-
-          {message && (
-            <p className="mt-4 break-words text-sm text-amber-300">
-              {message}
-            </p>
-          )}
-
-        </section>
-      </div>
-    </main>
+    <EventShell>
+      <section className="eh-panel eh-auth eh-form">
+        <h1>{signup ? "Create an account" : "Sign in to EventHub"}</h1>
+        <div className="eh-auth-providers">
+          <button className="eh-button secondary" disabled={busy} onClick={() => social("google")}>Continue with Google</button>
+          <button className="eh-button secondary" disabled={busy} onClick={() => social("linkedin_oidc")}>Continue with LinkedIn</button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <fieldset disabled={busy}>
+            {signup && <label>Full name<input name="fullName" required maxLength={100} autoComplete="name" /></label>}
+            <label>Email<input name="email" required type="email" autoComplete="email" /></label>
+            <label>Password<input name="password" required minLength={signup ? 8 : undefined} type="password" autoComplete={signup ? "new-password" : "current-password"} /></label>
+            <button type="submit" className="eh-button">{busy ? "Please wait…" : signup ? "Create account" : "Sign in"}</button>
+          </fieldset>
+        </form>
+        {message && <p className="eh-notice" role="status">{message}</p>}
+        <Link className="eh-back" href={{ pathname: signup ? "/login" : "/signup", query: { next } }}>{signup ? "Already have an account? Sign in" : "New to EventHub? Create an account"}</Link>
+      </section>
+    </EventShell>
   );
 }

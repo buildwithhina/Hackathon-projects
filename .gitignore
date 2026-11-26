@@ -3,6 +3,7 @@
 # dependencies
 /node_modules
 .next
+/.next.zip
 .env
 .env.local
 .env.*.local
